@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Build bundle package - x86_64
+name: Build bundle package - aarch64
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
