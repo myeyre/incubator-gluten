@@ -37,7 +37,7 @@ on:
       ref:
         description: 'Checkout repo ref to build'
         required: true
-        default: 'v1.4.0-rc1'
+        default: 'branch-1.4'
 
 jobs:
   build-native-lib:
