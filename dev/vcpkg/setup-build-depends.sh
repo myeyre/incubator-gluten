@@ -144,6 +144,17 @@ install_centos_8() {
         flex bison python3 \
         java-1.8.0-openjdk java-1.8.0-openjdk-devel
 
+    #yum -y install epel-release
+    #bclinux fix.
+    #https://docs.fedoraproject.org/en-US/epel/getting-started/#_el8
+    #subscription-manager repos --enable codeready-builder-for-rhel-8-$(arch)-rpms && dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+    yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+    #https://developer.aliyun.com/mirror/epel
+    #yum install -y https://mirrors.aliyun.com/epel/epel-release-latest-8.noarch.rpm
+    #sed -i 's|^#baseurl=https://download.example/pub|baseurl=https://mirrors.aliyun.com|' /etc/yum.repos.d/epel*
+    #sed -i 's|^metalink|#metalink|' /etc/yum.repos.d/epel*
+    yum -y install ccache
+
     pip3 install --upgrade pip
 
     # Requires cmake >= 3.28.3
@@ -250,6 +261,9 @@ eval "$(sed -En "/^(VERSION_|)ID=/s/^/OS_/p" /etc/os-release)"
 
 [ -n "$OS_ID" -a -n "$OS_VERSION_ID" ] || log_fatal "Failed to detect os: ID or VERSION_ID is empty"
 
+install_bclinux_8.2() {
+    install_centos_8
+}
 INSTALL_FUNC="install_${OS_ID}_${OS_VERSION_ID}"
 [ "$(type -t "$INSTALL_FUNC")" == function ] || log_fatal "Unsupport OS: ${OS_ID} ${OS_VERSION_ID}"
 

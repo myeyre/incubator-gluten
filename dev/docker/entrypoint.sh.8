@@ -15,23 +15,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#. /opt/rh/devtoolset-11/enable
-LINUX_OS=$(. /etc/os-release && echo ${ID})
-VERSION=$(. /etc/os-release && echo ${VERSION_ID})
-ARCH=`uname -m`
-
-if [ "$LINUX_OS" == "centos" ]; then
-  if [ "$VERSION" == "8" ]; then
-    source /opt/rh/gcc-toolset-11/enable
-  elif [ "$VERSION" == "7" ]; then
-    export MANPATH=""
-    source /opt/rh/devtoolset-11/enable
-  fi
-fi
-
-if [ "$ARCH" = "aarch64" ]; then
-  export VCPKG_FORCE_SYSTEM_BINARIES=1
-  export CPU_TARGET="aarch64"
-fi
-
+. /opt/rh/gcc-toolset-11/enable
 exec "$@"
