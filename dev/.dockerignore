@@ -1,3 +1,5 @@
 *
 !/vcpkg/setup-build-depends.sh
 !/docker/entrypoint.sh*
+!/docker/os-release.centos8
+!/docker/settings.xml

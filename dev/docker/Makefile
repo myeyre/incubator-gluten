@@ -15,8 +15,10 @@
 
 #DOCKER_IMAGE=apache/gluten:centos-7-vcpkg-build-depends
 #DOCKER_IMAGE=apache/gluten:centos-8-vcpkg-build-depends
-DOCKER_IMAGE=apache/gluten:bclinux-8-vcpkg-build-depends
+#DOCKER_IMAGE=apache/gluten:bclinux-8-vcpkg-build-depends
+#DOCKER_IMAGE=apache/gluten:vcpkg-centos-7
 #DOCKER_IMAGE=apache/gluten:vcpkg-centos-8
+DOCKER_IMAGE=apache/gluten:vcpkg-bclinux-8
 GLUTEN_REPO=$(shell realpath -L ../..)
 
 CCACHE_DIR=$(HOME)/.ccache

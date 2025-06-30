@@ -44,6 +44,7 @@ export PROMPT_ALWAYS_RESPOND=y
 
 export NUM_THREADS=1
 #./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --build_arrow=OFF --build_benchmarks=ON --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON "$@"
-#./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON --build_tests=OFF --build_arrow=OFF --build_benchmarks=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON "$@"
-./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON --build_tests=OFF --build_arrow=ON --build_benchmarks=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON "$@"
+#./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --build_arrow=ON --build_benchmarks=ON --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON "$@"
+./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON --build_tests=OFF --build_arrow=OFF --build_benchmarks=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON "$@"
+#./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON --build_tests=OFF --build_arrow=ON --build_benchmarks=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON "$@"
 
