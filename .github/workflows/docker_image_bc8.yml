@@ -48,6 +48,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: dev/docker/Dockerfile.bc8-static-build
+          file: dev/docker/Dockerfile.bc8-static-build-github
           push: true
           tags: ${{ env.DOCKERHUB_REPO }}:vcpkg-bclinux-8
