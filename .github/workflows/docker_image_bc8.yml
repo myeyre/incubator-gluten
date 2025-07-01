@@ -21,7 +21,7 @@ on:
       - branch-1.4
     paths:
       - '.github/workflows/docker_image_bc8.yml'
-      - 'dev/docker/Dockerfile.bc8-static-build'
+      - 'dev/docker/Dockerfile.bc8-static-build-github'
   workflow_dispatch: 
 
 env:
