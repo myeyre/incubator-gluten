@@ -19,7 +19,7 @@ FROM bc-v8.2:8.2.2107
 #RUN sed -i "s/enabled=1/enabled=0/" /etc/yum/pluginconf.d/fastestmirror.conf
 RUN sed -i 's/mirrors.bclinux.org/mirrors.cmecloud.cn/g; s/8.2/8/g; s/\[PowerTools]/[powertools]/g' /etc/yum.repos.d/*.repo
 
-# pretend to be centos
+# masq as centos
 #RUN echo -e 'NAME="CentOS Linux"\nVERSION="8"\nID="centos"\nID_LIKE="rhel fedora"\nVERSION_ID="8"\nPLATFORM_ID="platform:el8"\nPRETTY_NAME="CentOS Linux 8"\nANSI_COLOR="0;31"\nCPE_NAME="cpe:/o:centos:centos:8"\nHOME_URL="https://centos.org/"\nBUG_REPORT_URL="https://bugs.centos.org/"\nCENTOS_MANTISBT_PROJECT="CentOS-8"\nCENTOS_MANTISBT_PROJECT_VERSION="8"' > /etc/os-release
 COPY docker/os-release.centos8 /etc/os-release
 

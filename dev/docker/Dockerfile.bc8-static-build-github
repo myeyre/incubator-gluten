@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# cmecloud reset connections from github, use baseimage with gcc11 and maven installed. 
+# cmecloud reset connections from github? use baseimage with gcc11 and maven installed. 
 FROM myeyre/gluten:bclinux-8-vcpkg-build-depends
 
-#RUN git clone --depth=1 -b branch-1.4 https://github.com/apache/incubator-gluten /opt/gluten
-RUN git clone --depth=1 -b branch-1.4 https://github.com/myeyre/incubator-gluten /opt/gluten
-
-RUN cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh
+# local repo mirror
+COPY settings.xml /root/.m2/
 
 # An actual path used for vcpkg cache.
 RUN mkdir -p /var/cache/vcpkg
@@ -28,7 +26,15 @@ RUN mkdir -p /var/cache/vcpkg
 ENV VCPKG_BINARY_SOURCES=clear;files,/var/cache/vcpkg,readwrite
 
 # Build arrow, then install the native libs to system paths and jar package to .m2/ directory.
-RUN if [ "$(uname -m)" = "aarch64" ]; then \
+#RUN git clone --depth=1 -b branch-1.4 https://github.com/apache/incubator-gluten /opt/gluten && \
+RUN git clone --depth=1 -b branch-1.4 https://github.com/myeyre/incubator-gluten /opt/gluten && \
+    #cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh && \
+    # bump curl to new version for --retry-all-errors flag && \
+    yum -y install xz && \
+    curl -L https://github.com/stunnel/static-curl/releases/download/8.14.1/curl-linux-x86_64-glibc-8.14.1.tar.xz|tar -Jxf - -C /usr/bin curl && \
+    echo -e "--retry 10\n--retry-delay 3\n--retry-all-errors\n--insecure" >> ~/.curlrc && \
+    echo -e "tries = 10\nretry_wait = 3\ncheck_certificate = off" >> ~/.wgetrc && \
+    if [ "$(uname -m)" = "aarch64" ]; then \
         export CPU_TARGET="aarch64"; \
         export VCPKG_FORCE_SYSTEM_BINARIES=1; \
     fi && \

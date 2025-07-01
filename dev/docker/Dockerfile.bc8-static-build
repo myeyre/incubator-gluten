@@ -33,7 +33,7 @@ RUN echo "check_certificate = off" >> ~/.wgetrc
 RUN yum install -y java-1.8.0-openjdk-devel patch wget git perl
 ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
-RUN wget --no-check-certificate https://downloads.apache.org/maven/maven-3/3.8.8/binaries/apache-maven-3.8.8-bin.tar.gz && \
+RUN wget --no-check-certificate https://archive.apache.org/dist/maven/maven-3/3.8.8/binaries/apache-maven-3.8.8-bin.tar.gz && \
     tar -xvf apache-maven-3.8.8-bin.tar.gz && \
     mv apache-maven-3.8.8 /usr/lib/maven
 ENV PATH=${PATH}:/usr/lib/maven/bin
@@ -46,6 +46,11 @@ RUN cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh
 
 # An actual path used for vcpkg cache.
 RUN mkdir -p /var/cache/vcpkg
+
+# bump curl to new version for --retry-all-errors flag
+RUN yum -y install xz && \
+    curl -L https://github.com/stunnel/static-curl/releases/download/8.14.1/curl-linux-x86_64-glibc-8.14.1.tar.xz|tar -Jxf - -C /usr/bin curl && \
+    echo -e "--retry 10\n--retry-delay 3\n--retry-all-errors\n--insecure" >> ~/.curlrc
 
 # Set vcpkg cache path.
 ENV VCPKG_BINARY_SOURCES=clear;files,/var/cache/vcpkg,readwrite
