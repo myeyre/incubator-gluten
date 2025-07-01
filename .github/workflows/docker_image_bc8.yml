@@ -18,10 +18,10 @@ name: Build and Push Docker Image - BCLinux8
 on:
   push:
     branches:
-      - main
+      - branch-1.4
     paths:
       - '.github/workflows/docker_image_bc8.yml'
-      - 'dev/docker/Dockerfile.bc8-dynamic-build'
+      - 'dev/docker/Dockerfile.bc8-static-build'
   workflow_dispatch: 
 
 env:
