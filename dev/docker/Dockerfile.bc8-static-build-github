@@ -31,6 +31,7 @@ RUN git clone --depth=1 -b branch-1.4 https://github.com/myeyre/incubator-gluten
     #cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh && \
     # bump curl to new version for --retry-all-errors flag && \
     yum -y install xz && \
+    yum clean all && \
     curl -L https://github.com/stunnel/static-curl/releases/download/8.14.1/curl-linux-x86_64-glibc-8.14.1.tar.xz|tar -Jxf - -C /usr/bin curl && \
     echo -e "--retry 10\n--retry-delay 3\n--retry-all-errors\n--insecure" >> ~/.curlrc && \
     echo -e "tries = 10\nretry_wait = 3\ncheck_certificate = off" >> ~/.wgetrc && \
@@ -41,4 +42,6 @@ RUN git clone --depth=1 -b branch-1.4 https://github.com/myeyre/incubator-gluten
     cd /opt/gluten && source /opt/rh/gcc-toolset-11/enable && \
     bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
                                     --enable_hdfs=ON --enable_abfs=ON  build_arrow && \
+    rm -rf /var/cache/vcpkg && \
+    rm -rf /root/.cache /root/.ccache && \
     rm -rf /opt/gluten
