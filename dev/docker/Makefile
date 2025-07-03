@@ -1,4 +1,24 @@
-DOCKER_IMAGE=apache/gluten:centos-7-vcpkg-build-depends
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+#DOCKER_IMAGE=apache/gluten:centos-7-vcpkg-build-depends
+#DOCKER_IMAGE=apache/gluten:centos-8-vcpkg-build-depends
+#DOCKER_IMAGE=apache/gluten:bclinux-8-vcpkg-build-depends
+#DOCKER_IMAGE=apache/gluten:vcpkg-centos-7
+#DOCKER_IMAGE=apache/gluten:vcpkg-centos-8
+DOCKER_IMAGE=apache/gluten:vcpkg-bclinux-8
 GLUTEN_REPO=$(shell realpath -L ../..)
 
 CCACHE_DIR=$(HOME)/.ccache
@@ -20,9 +40,34 @@ build: $(CCACHE_DIR) $(VCPKG_BINARY_CACHE_DIR) $(MAVEN_M2_DIR)
 		$(DOCKER_IMAGE) \
 		./dev/package-vcpkg.sh
 
+build8:
+	docker run --rm -ti \
+		-v $(GLUTEN_REPO):$(GLUTEN_REPO) \
+		-e http_proxy \
+		-e https_proxy \
+		--workdir $(GLUTEN_REPO) \
+		$(DOCKER_IMAGE) \
+		./dev/package-vcpkg.sh
+
 docker-image:
 	docker build \
 		--file Dockerfile \
+		--build-arg BUILDER_UID=`id -u` \
+		--build-arg BUILDER_GID=`id -g` \
+		--tag "$(DOCKER_IMAGE)" \
+		..
+
+docker-image.8:
+	docker build \
+		--file Dockerfile.8 \
+		--build-arg BUILDER_UID=`id -u` \
+		--build-arg BUILDER_GID=`id -g` \
+		--tag "$(DOCKER_IMAGE)" \
+		..
+
+docker-image.bc8:
+	docker build \
+		--file Dockerfile.bc8 \
 		--build-arg BUILDER_UID=`id -u` \
 		--build-arg BUILDER_GID=`id -g` \
 		--tag "$(DOCKER_IMAGE)" \
@@ -36,10 +81,26 @@ docker-image-static-build:
 		--build-arg HTTP_PROXY="" \
 		.
 
+docker-image-static-build8:
+	docker build \
+		--file Dockerfile.centos8-static-build \
+		--tag "apache/gluten:vcpkg-centos-8" \
+		--build-arg HTTPS_PROXY="" \
+		--build-arg HTTP_PROXY="" \
+		.
+
+docker-image-static-build.bc8:
+	docker build \
+		--file Dockerfile.bc8-static-build \
+		--tag "apache/gluten:vcpkg-bclinux-8" \
+		--build-arg HTTPS_PROXY="" \
+		--build-arg HTTP_PROXY="" \
+		.
+
 docker-image-dynamic-build:
 	docker build \
 		--file Dockerfile.centos8-dynamic-build \
-		--tag "apache/gluten:centos-8" \
+		--tag "apache/gluten:centos-8-jdk8" \
 		--build-arg HTTPS_PROXY="" \
 		--build-arg HTTP_PROXY="" \
 		.

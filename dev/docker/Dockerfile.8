@@ -1,5 +1,3 @@
-#! /bin/sh
-
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -15,23 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#. /opt/rh/devtoolset-11/enable
-LINUX_OS=$(. /etc/os-release && echo ${ID})
-VERSION=$(. /etc/os-release && echo ${VERSION_ID})
-ARCH=`uname -m`
+FROM centos:8
 
-if [ "$LINUX_OS" == "centos" ]; then
-  if [ "$VERSION" == "8" ]; then
-    source /opt/rh/gcc-toolset-11/enable
-  elif [ "$VERSION" == "7" ]; then
-    export MANPATH=""
-    source /opt/rh/devtoolset-11/enable
-  fi
-fi
+#RUN sed -i "s/enabled=1/enabled=0/" /etc/yum/pluginconf.d/fastestmirror.conf
 
-if [ "$ARCH" = "aarch64" ]; then
-  export VCPKG_FORCE_SYSTEM_BINARIES=1
-  export CPU_TARGET="aarch64"
-fi
+WORKDIR /tmp/vcpkg
+COPY vcpkg/setup-build-depends.sh setup-build-depends.sh
+RUN ./setup-build-depends.sh
 
-exec "$@"
+WORKDIR /
+RUN rm -rf /tmp/vcpkg
+
+ARG BUILDER_UID
+ARG BUILDER_GID
+RUN if ["$BUILDER_GID" != "0"]; then \
+    groupadd -g ${BUILDER_GID} build; \
+    fi
+RUN if ["$BUILDER_UID" != "0"]; then \
+    useradd -mu ${BUILDER_UID} -g ${BUILDER_GID} -G wheel build; \
+    fi
+USER ${BUILDER_UID}:${BUILDER_GID}
+
+ENV VCPKG_BINARY_SOURCES=default
+COPY docker/entrypoint.sh.8 /entrypoint
+ENTRYPOINT ["/entrypoint"]
+CMD ["sleep", "inf"]
