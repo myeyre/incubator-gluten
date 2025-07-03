@@ -50,4 +50,6 @@ jobs:
           context: .
           file: dev/docker/Dockerfile.bc8-static-build-github
           push: true
-          tags: ${{ env.DOCKERHUB_REPO }}:vcpkg-bclinux-8
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:vcpkg-bclinux-8
+            ${{ env.DOCKERHUB_REPO }}:1.4-vcpkg-bclinux-8
