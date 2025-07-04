@@ -91,7 +91,7 @@ docker-image-static-build8:
 
 docker-image-static-build.bc8:
 	docker build \
-		--file Dockerfile.bc8-static-build \
+		--file Dockerfile.bc8-static-build-github \
 		--tag "apache/gluten:vcpkg-bclinux-8" \
 		--build-arg HTTPS_PROXY="" \
 		--build-arg HTTP_PROXY="" \
