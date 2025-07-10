@@ -1,0 +1,12 @@
+FROM apache/gluten:1.3-vcpkg-bclinux-8
+
+RUN yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm && \
+    yum -y install ccache && \
+    # needed by built-in cmake, but not the pip installed one.
+    # cmake: symbol lookup error: cmake: undefined symbol: archive_write_add_filter_zstd
+    # yum -y upgrade libarchive && \
+    yum clean all && \
+    pip3 install --upgrade pip && \
+    # Requires cmake >= 3.28.3 && \
+    pip3 install cmake==3.28.3 && \
+    rm -rf /root/.cache /root/.ccache
