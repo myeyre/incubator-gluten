@@ -1,0 +1,49 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# cmecloud reset connections from github? use baseimage with gcc11 and maven installed.
+FROM myeyre/gluten:1.4-bclinux-8-vcpkg-build-depends
+
+# local repo mirror
+COPY settings.xml /root/.m2/
+
+# An actual path used for vcpkg cache.
+RUN mkdir -p /var/cache/vcpkg
+
+# Set vcpkg cache path.
+ENV VCPKG_BINARY_SOURCES=clear;files,/var/cache/vcpkg,readwrite
+
+# Build arrow, then install the native libs to system paths and jar package to .m2/ directory.
+#RUN git clone --depth=1 -b branch-1.4 https://github.com/apache/incubator-gluten /opt/gluten && \
+RUN git clone --depth=1 -b branch-1.4 https://github.com/myeyre/incubator-gluten /opt/gluten && \
+    #cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh && \
+    # bump curl to new version for --retry-all-errors flag && \
+    yum -y install xz && \
+    yum clean all && \
+    curl -L https://github.com/stunnel/static-curl/releases/download/8.14.1/curl-linux-x86_64-glibc-8.14.1.tar.xz|tar -Jxf - -C /usr/bin curl && \
+    echo -e "--retry 10\n--retry-delay 3\n--retry-all-errors\n--insecure" >> ~/.curlrc && \
+    echo -e "tries = 10\nretry_wait = 3\ncheck_certificate = off" >> ~/.wgetrc && \
+    if [ "$(uname -m)" = "aarch64" ]; then \
+        export CPU_TARGET="aarch64"; \
+        export VCPKG_FORCE_SYSTEM_BINARIES=1; \
+    fi && \
+    cd /opt/gluten && source /opt/rh/gcc-toolset-11/enable && \
+    #bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
+    #                                --enable_hdfs=ON --enable_abfs=ON  build_arrow && \
+    bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=OFF --build_arrow=ON --build_benchmarks=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON && \
+    echo "keep build cache for offline build."
+    #rm -rf /var/cache/vcpkg && \
+    #rm -rf /root/.cache /root/.ccache && \
+    #rm -rf /opt/gluten
