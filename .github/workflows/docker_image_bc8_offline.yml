@@ -28,7 +28,7 @@ env:
   DOCKERHUB_REPO: myeyre/gluten
 
 jobs:
-  vcpkg-bclinux-8:
+  vcpkg-bclinux-8-offline:
     runs-on: ubuntu-latest
 
     steps:
