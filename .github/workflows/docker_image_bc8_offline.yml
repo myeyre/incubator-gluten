@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Build and Push Docker Image - BCLinux8
+name: Build and Push Docker Image - BCLinux8 - Offline
 
 on:
   push:
     branches:
-      - branch-1.3
+      - branch-1.4
     paths:
       - '.github/workflows/docker_image_bc8_offline.yml'
       - 'dev/docker/Dockerfile.bc8-static-build-offline'
