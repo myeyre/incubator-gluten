@@ -17,7 +17,7 @@
 FROM myeyre/gluten:1.4-bclinux-8-vcpkg-build-depends
 
 # local repo mirror
-COPY settings.xml /root/.m2/
+#COPY settings.xml /root/.m2/
 
 # An actual path used for vcpkg cache.
 RUN mkdir -p /var/cache/vcpkg
