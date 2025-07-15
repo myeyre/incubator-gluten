@@ -29,6 +29,8 @@ ENV VCPKG_BINARY_SOURCES=clear;files,/var/cache/vcpkg,readwrite
 #RUN git clone --depth=1 -b branch-1.3 https://github.com/apache/incubator-gluten /opt/gluten && \
 RUN git clone --depth=1 -b branch-1.3 https://github.com/myeyre/incubator-gluten /opt/gluten && \
     #cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh && \
+    # install rsync for dir merge && \
+    yum -y install rsync && \
     # bump curl to new version for --retry-all-errors flag && \
     yum -y install xz && \
     yum clean all && \
