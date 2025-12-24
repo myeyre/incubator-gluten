@@ -22,6 +22,8 @@ import org.apache.gluten.memory.memtarget.spark.TreeMemoryConsumers;
 
 import org.apache.spark.SparkEnv;
 import org.apache.spark.annotation.Experimental;
+import org.apache.spark.memory.GlobalOffHeapMemoryTarget;
+import org.apache.spark.memory.MemoryMode;
 import org.apache.spark.memory.TaskMemoryManager;
 import org.apache.spark.util.SparkResourceUtil;
 import org.slf4j.Logger;
@@ -34,6 +36,10 @@ public final class MemoryTargets {
 
   private MemoryTargets() {
     // enclose factory ctor
+  }
+
+  public static MemoryTarget global() {
+    return new GlobalOffHeapMemoryTarget();
   }
 
   public static MemoryTarget throwOnOom(MemoryTarget target) {
@@ -51,7 +57,7 @@ public final class MemoryTargets {
   @Experimental
   public static MemoryTarget dynamicOffHeapSizingIfEnabled(MemoryTarget memoryTarget) {
     if (GlutenCoreConfig.get().dynamicOffHeapSizingEnabled()) {
-      return new DynamicOffHeapSizingMemoryTarget();
+      return new DynamicOffHeapSizingMemoryTarget(memoryTarget);
     }
 
     return memoryTarget;
@@ -62,7 +68,13 @@ public final class MemoryTargets {
       String name,
       Spiller spiller,
       Map<String, MemoryUsageStatsBuilder> virtualChildren) {
-    final TreeMemoryConsumers.Factory factory = TreeMemoryConsumers.factory(tmm);
+    final MemoryMode mode;
+    if (GlutenCoreConfig.get().dynamicOffHeapSizingEnabled()) {
+      mode = MemoryMode.ON_HEAP;
+    } else {
+      mode = MemoryMode.OFF_HEAP;
+    }
+    final TreeMemoryConsumers.Factory factory = TreeMemoryConsumers.factory(tmm, mode);
     if (GlutenCoreConfig.get().memoryIsolation()) {
       return TreeMemoryTargets.newChild(factory.isolatedRoot(), name, spiller, virtualChildren);
     }
@@ -90,7 +102,7 @@ public final class MemoryTargets {
           LOGGER.info("Request for spilling on consumer {}...", consumer.name());
           // Note: Spill from root node so other consumers also get spilled.
           long spilled = TreeMemoryTargets.spillTree(root, Long.MAX_VALUE);
-          LOGGER.info("Consumer {} spilled {} bytes.", consumer.name(), spilled);
+          LOGGER.info("Consumer {} gets {} bytes from spilling.", consumer.name(), spilled);
         });
   }
 }

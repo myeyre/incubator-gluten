@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution.hive
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{FileSourceScanExecTransformer, GlutenClickHouseWholeStageTransformerSuite, ProjectExecTransformer, TransformSupport}
 import org.apache.gluten.test.AllDataTypesWithComplexType
 
@@ -54,13 +55,12 @@ class GlutenClickHouseHiveTableSuite
       .set(ClickHouseConfig.CLICKHOUSE_WORKER_ID, "1")
       .set("spark.gluten.sql.columnar.iterator", "true")
       .set("spark.gluten.sql.columnar.hashagg.enablefinal", "true")
-      .set("spark.gluten.sql.enable.native.validation", "false")
-      .set("spark.gluten.sql.parquet.maxmin.index", "true")
+      .set(GlutenConfig.NATIVE_VALIDATION_ENABLED.key, "false")
       .set(
         "spark.sql.warehouse.dir",
         this.getClass.getResource("/").getPath + "tests-working-home/spark-warehouse")
       .set("spark.hive.exec.dynamic.partition.mode", "nonstrict")
-      .set("spark.gluten.supported.hive.udfs", "my_add")
+      .set(GlutenConfig.GLUTEN_SUPPORTED_HIVE_UDFS.key, "my_add")
       .setCHConfig("use_local_format", true)
       .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
       .set(
@@ -1030,7 +1030,7 @@ class GlutenClickHouseHiveTableSuite
         s"'org.apache.hadoop.hive.contrib.udf.example.UDFExampleAdd2' USING JAR '$jarUrl'")
     if (isSparkVersionLE("3.3")) {
       runQueryAndCompare("select MY_ADD(id, id+1) from range(10)")(
-        checkGlutenOperatorMatch[ProjectExecTransformer])
+        checkGlutenPlan[ProjectExecTransformer])
     } else {
       runQueryAndCompare("select MY_ADD(id, id+1) from range(10)", noFallBack = false)(_ => {})
     }
@@ -1125,7 +1125,7 @@ class GlutenClickHouseHiveTableSuite
     Seq("true", "false").foreach {
       enabled =>
         withSQLConf(SQLConf.JSON_EXPRESSION_OPTIMIZATION.key -> enabled) {
-          runQueryAndCompare(selectSql)(checkGlutenOperatorMatch[ProjectExecTransformer])
+          runQueryAndCompare(selectSql)(checkGlutenPlan[ProjectExecTransformer])
         }
     }
   }

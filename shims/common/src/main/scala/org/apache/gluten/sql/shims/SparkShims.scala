@@ -19,7 +19,7 @@ package org.apache.gluten.sql.shims
 import org.apache.gluten.GlutenBuildInfo.SPARK_COMPILE_VERSION
 import org.apache.gluten.expression.Sig
 
-import org.apache.spark.SparkContext
+import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.scheduler.TaskInfo
@@ -28,7 +28,7 @@ import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.csv.CSVOptions
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryExpression, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryExpression, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, UnBase64}
 import org.apache.spark.sql.catalyst.expressions.aggregate.TypedImperativeAggregate
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -37,20 +37,22 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
+import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFilters
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2ScanExecBase}
 import org.apache.spark.sql.execution.datasources.v2.text.TextScan
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
+import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.storage.{BlockId, BlockManagerId}
 import org.apache.spark.util.SparkShimVersionUtil
 
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileStatus, LocatedFileStatus, Path}
+import org.apache.hadoop.fs.{FileStatus, Path}
+import org.apache.parquet.hadoop.metadata.{CompressionCodecName, ParquetMetadata}
 import org.apache.parquet.schema.MessageType
 
 import java.util.{Map => JMap}
@@ -95,7 +97,7 @@ trait SparkShims {
 
   def generateFileScanRDD(
       sparkSession: SparkSession,
-      readFunction: (PartitionedFile) => Iterator[InternalRow],
+      readFunction: PartitionedFile => Iterator[InternalRow],
       filePartitions: Seq[FilePartition],
       fileSourceScanExec: FileSourceScanExec): FileScanRDD
 
@@ -143,7 +145,7 @@ trait SparkShims {
           Expression,
           Expression,
           Int,
-          Int) => TypedImperativeAggregate[T]): Expression;
+          Int) => TypedImperativeAggregate[T]): Expression
 
   def replaceMightContain[T](
       expr: Expression,
@@ -151,9 +153,9 @@ trait SparkShims {
 
   def isWindowGroupLimitExec(plan: SparkPlan): Boolean = false
 
-  def getWindowGroupLimitExecShim(plan: SparkPlan): SparkPlan = null
+  def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 
-  def getWindowGroupLimitExec(windowGroupLimitPlan: SparkPlan): SparkPlan = null
+  def getWindowGroupLimitExec(windowGroupLimitExecShim: WindowGroupLimitExecShim): SparkPlan = null
 
   def getLimitAndOffsetFromGlobalLimit(plan: GlobalLimitExec): (Int, Int) = (plan.limit, 0)
 
@@ -232,7 +234,13 @@ trait SparkShims {
 
   def generateMetadataColumns(
       file: PartitionedFile,
-      metadataColumnNames: Seq[String] = Seq.empty): JMap[String, String]
+      metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
+    Map(
+      InputFileName().prettyName -> file.filePath.toString,
+      InputFileBlockStart().prettyName -> file.start.toString,
+      InputFileBlockLength().prettyName -> file.length.toString
+    )
+  }
 
   // For compatibility with Spark-3.5.
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan]
@@ -242,6 +250,10 @@ trait SparkShims {
   def getCommonPartitionValues(batchScan: BatchScanExec): Option[Seq[(InternalRow, Int)]] =
     Option(Seq())
 
+  /**
+   * Most of the code in this method is copied from
+   * [[org.apache.spark.sql.execution.datasources.v2.BatchScanExec.inputRDD]].
+   */
   def orderPartitions(
       batchScan: DataSourceV2ScanExecBase,
       scan: Scan,
@@ -250,9 +262,14 @@ trait SparkShims {
       outputPartitioning: Partitioning,
       commonPartitionValues: Option[Seq[(InternalRow, Int)]],
       applyPartialClustering: Boolean,
-      replicatePartitions: Boolean): Seq[Seq[InputPartition]] = filteredPartitions
+      replicatePartitions: Boolean,
+      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]] =
+    filteredPartitions
 
   def extractExpressionTimestampAddUnit(timestampAdd: Expression): Option[Seq[String]] =
+    Option.empty
+
+  def extractExpressionTimestampDiffUnit(timestampDiff: Expression): Option[String] =
     Option.empty
 
   def withTryEvalMode(expr: Expression): Boolean = false
@@ -303,10 +320,39 @@ trait SparkShims {
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def unsetOperatorId(plan: QueryPlan[_]): Unit
 
-  def isParquetFileEncrypted(fileStatus: LocatedFileStatus, conf: Configuration): Boolean
+  def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
 
   def getCollectLimitOffset(plan: CollectLimitExec): Int = 0
+
+  def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean = false
+
+  def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
+
+  def getRewriteCreateTableAsSelect(session: SparkSession): SparkStrategy = _ => Seq.empty
+
+  /** Shim method for get the "errorMessage" value for Spark 4.0 and above */
+  def getErrorMessage(raiseError: RaiseError): Option[Expression]
+
+  def throwExceptionInWrite(t: Throwable, writePath: String, descriptionPath: String): Unit = {
+    throw new SparkException(
+      s"Task failed while writing rows to staging path: $writePath, " +
+        s"output path: $descriptionPath",
+      t)
+  }
+
+  // Compatibility method for Spark 4.0: rethrows the exception cause to maintain API compatibility
+  def enrichWriteException(cause: Throwable, path: String): Nothing = {
+    throw cause
+  }
+
+  def getFileSourceScanStream(scan: FileSourceScanExec): Option[SparkDataStream] = {
+    None
+  }
+
+  def unsupportedCodec: Seq[CompressionCodecName] = {
+    Seq(CompressionCodecName.LZO, CompressionCodecName.BROTLI)
+  }
 }

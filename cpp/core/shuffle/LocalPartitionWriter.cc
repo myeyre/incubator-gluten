@@ -95,7 +95,11 @@ class LocalPartitionWriter::LocalSpiller {
   arrow::Status spill(uint32_t partitionId, std::unique_ptr<InMemoryPayload> payload) {
     ScopedTimer timer(&spillTime_);
 
-    curPid_ = partitionId;
+    if (curPid_ != partitionId) {
+      // Record the write position of the new partition.
+      ARROW_ASSIGN_OR_RAISE(writePos_, os_->Tell());
+      curPid_ = partitionId;
+    }
     flushed_ = false;
 
     auto* raw = compressedOs_ != nullptr ? compressedOs_.get() : os_.get();
@@ -596,7 +600,7 @@ arrow::Status LocalPartitionWriter::writeCachedPayloads(uint32_t partitionId, ar
   return arrow::Status::OK();
 }
 
-arrow::Status LocalPartitionWriter::stop(ShuffleWriterMetrics* metrics) {
+arrow::Status LocalPartitionWriter::stop(ShuffleWriterMetrics* metrics, int64_t& evictBytes) {
   if (stopped_) {
     return arrow::Status::OK();
   }
@@ -641,6 +645,7 @@ arrow::Status LocalPartitionWriter::stop(ShuffleWriterMetrics* metrics) {
     }
   }
   ARROW_ASSIGN_OR_RAISE(totalBytesWritten_, dataFileOs_->Tell());
+  evictBytes += totalBytesWritten_;
 
   // Close Final file. Clear buffered resources.
   RETURN_NOT_OK(clearResource());
@@ -706,7 +711,8 @@ arrow::Status LocalPartitionWriter::hashEvict(
     uint32_t partitionId,
     std::unique_ptr<InMemoryPayload> inMemoryPayload,
     Evict::type evictType,
-    bool reuseBuffers) {
+    bool reuseBuffers,
+    int64_t& evictBytes) {
   rawPartitionLengths_[partitionId] += inMemoryPayload->rawSize();
 
   if (evictType == Evict::kSpill) {
@@ -750,7 +756,7 @@ arrow::Status LocalPartitionWriter::hashEvict(
 }
 
 arrow::Status
-LocalPartitionWriter::sortEvict(uint32_t partitionId, std::unique_ptr<InMemoryPayload> inMemoryPayload, bool isFinal) {
+LocalPartitionWriter::sortEvict(uint32_t partitionId, std::unique_ptr<InMemoryPayload> inMemoryPayload, bool isFinal, int64_t& evictBytes) {
   rawPartitionLengths_[partitionId] += inMemoryPayload->rawSize();
 
   if (lastEvictPid_ != -1 && (partitionId < lastEvictPid_ || (isFinal && !dataFileOs_))) {

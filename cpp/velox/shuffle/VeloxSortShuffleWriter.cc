@@ -31,6 +31,7 @@ constexpr uint32_t kMaskLower27Bits = (1 << 27) - 1;
 constexpr uint64_t kMaskLower40Bits = (1UL << 40) - 1;
 constexpr uint32_t kPartitionIdStartByteIndex = 5;
 constexpr uint32_t kPartitionIdEndByteIndex = 7;
+constexpr uint32_t kMaxPageNumber = (1 << 13) - 1; // 13-bit max = 8191
 
 uint64_t toCompactRowId(uint32_t partitionId, uint32_t pageNumber, uint32_t offsetInPage) {
   // |63 partitionId(24) |39 inputIndex(13) |26 rowIndex(27) |
@@ -72,6 +73,7 @@ VeloxSortShuffleWriter::VeloxSortShuffleWriter(
       diskWriteBufferSize_(options->diskWriteBufferSize) {}
 
 arrow::Status VeloxSortShuffleWriter::write(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) {
+  writtenBytes_ = 0;
   ARROW_ASSIGN_OR_RAISE(auto rv, getPeeledRowVector(cb));
   initRowType(rv);
   RETURN_NOT_OK(insert(rv, memLimit));
@@ -80,6 +82,7 @@ arrow::Status VeloxSortShuffleWriter::write(std::shared_ptr<ColumnarBatch> cb, i
 
 arrow::Status VeloxSortShuffleWriter::stop() {
   ARROW_RETURN_IF(evictState_ == EvictState::kUnevictable, arrow::Status::Invalid("Unevictable state in stop."));
+  writtenBytes_ = 0;
 
   stopped_ = true;
   if (offset_ > 0) {
@@ -89,7 +92,7 @@ arrow::Status VeloxSortShuffleWriter::stop() {
   sortedBuffer_.reset();
   pages_.clear();
   pageAddresses_.clear();
-  RETURN_NOT_OK(partitionWriter_->stop(&metrics_));
+  RETURN_NOT_OK(partitionWriter_->stop(&metrics_, writtenBytes_));
   return arrow::Status::OK();
 }
 
@@ -135,6 +138,7 @@ arrow::Result<facebook::velox::RowVectorPtr> VeloxSortShuffleWriter::getPeeledRo
     RETURN_NOT_OK(partitioner_->compute(pidArr, pidBatch->numRows(), row2Partition_));
 
     std::vector<int32_t> range;
+    range.reserve(numColumns);
     for (int32_t i = 1; i < numColumns; i++) {
       range.push_back(i);
     }
@@ -216,7 +220,7 @@ void VeloxSortShuffleWriter::insertRows(
 }
 
 arrow::Status VeloxSortShuffleWriter::maybeSpill(uint32_t nextRows) {
-  if ((uint64_t)offset_ + nextRows > std::numeric_limits<uint32_t>::max()) {
+  if ((uint64_t)offset_ + nextRows > std::numeric_limits<uint32_t>::max() || pageNumber_ >= kMaxPageNumber) {
     RETURN_NOT_OK(evictAllPartitions());
   }
   return arrow::Status::OK();
@@ -291,7 +295,7 @@ arrow::Status VeloxSortShuffleWriter::evictPartition(uint32_t partitionId, size_
     recordSize = *(reinterpret_cast<RowSizeType*>(addr)) + sizeof(RowSizeType);
     if (offset + recordSize > diskWriteBufferSize_ && offset > 0) {
       sortTime.stop();
-      RETURN_NOT_OK(evictPartitionInternal(partitionId, sortedBufferPtr_, offset));
+      RETURN_NOT_OK(evictPartitionInternal(partitionId, index - begin, sortedBufferPtr_, offset));
       sortTime.start();
       begin = index;
       offset = 0;
@@ -304,7 +308,8 @@ arrow::Status VeloxSortShuffleWriter::evictPartition(uint32_t partitionId, size_
       while (bytes < recordSize) {
         auto rawLength = std::min<RowSizeType>(static_cast<uint32_t>(diskWriteBufferSize_), recordSize - bytes);
         // Use numRows = 0 to represent a part of row.
-        RETURN_NOT_OK(evictPartitionInternal(partitionId, buffer + bytes, rawLength));
+        auto numRows = (bytes + rawLength == recordSize) ? 1 : 0;
+        RETURN_NOT_OK(evictPartitionInternal(partitionId, numRows, buffer + bytes, rawLength));
         bytes += rawLength;
       }
       begin++;
@@ -319,21 +324,25 @@ arrow::Status VeloxSortShuffleWriter::evictPartition(uint32_t partitionId, size_
   sortTime.stop();
   if (offset > 0) {
     VELOX_CHECK(index > begin);
-    RETURN_NOT_OK(evictPartitionInternal(partitionId, sortedBufferPtr_, offset));
+    RETURN_NOT_OK(evictPartitionInternal(partitionId, index - begin, sortedBufferPtr_, offset));
   }
   sortTime_ += sortTime.realTimeUsed();
   return arrow::Status::OK();
 }
 
-arrow::Status VeloxSortShuffleWriter::evictPartitionInternal(uint32_t partitionId, uint8_t* buffer, int64_t rawLength) {
+arrow::Status VeloxSortShuffleWriter::evictPartitionInternal(
+    uint32_t partitionId,
+    uint32_t numRows,
+    uint8_t* buffer,
+    int64_t rawLength) {
   VELOX_CHECK(rawLength > 0);
   auto payload = std::make_unique<InMemoryPayload>(
-      0,
+      numRows,
       nullptr,
       nullptr,
       std::vector<std::shared_ptr<arrow::Buffer>>{std::make_shared<arrow::Buffer>(buffer, rawLength)});
   updateSpillMetrics(payload);
-  RETURN_NOT_OK(partitionWriter_->sortEvict(partitionId, std::move(payload), stopped_));
+  RETURN_NOT_OK(partitionWriter_->sortEvict(partitionId, std::move(payload), stopped_, writtenBytes_));
   return arrow::Status::OK();
 }
 

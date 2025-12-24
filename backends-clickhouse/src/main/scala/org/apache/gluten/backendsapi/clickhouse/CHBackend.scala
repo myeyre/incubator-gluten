@@ -18,7 +18,6 @@ package org.apache.gluten.backendsapi.clickhouse
 
 import org.apache.gluten.GlutenBuildInfo._
 import org.apache.gluten.backendsapi._
-import org.apache.gluten.component.Component.BuildInfo
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ValidationResult
 import org.apache.gluten.execution.WriteFilesExecTransformer
@@ -53,8 +52,12 @@ import scala.util.control.Breaks.{break, breakable}
 class CHBackend extends SubstraitBackend {
   import CHBackend._
   override def name(): String = CHConfig.BACKEND_NAME
-  override def buildInfo(): BuildInfo =
-    BuildInfo("ClickHouse", CH_BRANCH, CH_COMMIT, "UNKNOWN")
+  override def info(): Map[String, String] = {
+    Map(
+      "ch_branch" -> CH_BRANCH,
+      "ch_revision" -> CH_COMMIT
+    )
+  }
   override def iteratorApi(): IteratorApi = new CHIteratorApi
   override def sparkPlanExecApi(): SparkPlanExecApi = new CHSparkPlanExecApi
   override def transformerApi(): TransformerApi = new CHTransformerApi
@@ -112,7 +115,7 @@ object CHBackendSettings extends BackendSettingsApi with Logging {
   private val GLUTEN_CLICKHOUSE_SHUFFLE_SUPPORTED_CODEC: Set[String] = Set("lz4", "zstd", "snappy")
 
   // The algorithm for hash partition of the shuffle
-  private val GLUTEN_CLICKHOUSE_SHUFFLE_HASH_ALGORITHM: String =
+  val GLUTEN_CLICKHOUSE_SHUFFLE_HASH_ALGORITHM: String =
     CHConfig.prefixOf("shuffle.hash.algorithm")
   // valid values are: cityHash64 or sparkMurmurHash3_32
   private val GLUTEN_CLICKHOUSE_SHUFFLE_HASH_ALGORITHM_DEFAULT = "sparkMurmurHash3_32"
@@ -181,9 +184,11 @@ object CHBackendSettings extends BackendSettingsApi with Logging {
   override def validateScanExec(
       format: ReadFileFormat,
       fields: Array[StructField],
+      dataSchema: StructType,
       rootPaths: Seq[String],
       properties: Map[String, String],
-      hadoopConf: Configuration): ValidationResult = {
+      hadoopConf: Configuration,
+      partitionFileFormats: Set[ReadFileFormat]): ValidationResult = {
 
     // Validate if all types are supported.
     def hasComplexType: Boolean = {
@@ -202,20 +207,29 @@ object CHBackendSettings extends BackendSettingsApi with Logging {
       }
       !unsupportedDataTypes.isEmpty
     }
-    format match {
-      case ParquetReadFormat => ValidationResult.succeeded
-      case OrcReadFormat => ValidationResult.succeeded
-      case MergeTreeReadFormat => ValidationResult.succeeded
-      case TextReadFormat =>
-        if (!hasComplexType) {
-          ValidationResult.succeeded
-        } else {
-          ValidationResult.failed("Has complex type.")
-        }
-      case JsonReadFormat => ValidationResult.succeeded
-      case KafkaReadFormat => ValidationResult.succeeded
-      case _ => ValidationResult.failed(s"Unsupported file format $format")
-    }
+
+    def checkFormat(format: ReadFileFormat): ValidationResult =
+      format match {
+        case ParquetReadFormat => ValidationResult.succeeded
+        case OrcReadFormat => ValidationResult.succeeded
+        case MergeTreeReadFormat => ValidationResult.succeeded
+        case TextReadFormat =>
+          if (!hasComplexType) {
+            ValidationResult.succeeded
+          } else {
+            ValidationResult.failed("Has complex type.")
+          }
+        case JsonReadFormat => ValidationResult.succeeded
+        case KafkaReadFormat => ValidationResult.succeeded
+        case _ => ValidationResult.failed(s"Unsupported file format $format")
+      }
+
+    val distinctFileFormats = partitionFileFormats + format
+    distinctFileFormats
+      .collectFirst {
+        case format if !checkFormat(format).ok() => checkFormat(format)
+      }
+      .getOrElse(ValidationResult.succeeded)
   }
 
   override def getSubstraitReadFileFormatV1(

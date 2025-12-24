@@ -161,8 +161,8 @@ class ListenableArbitrator : public velox::memory::MemoryArbitrator {
     // Since
     // https://github.com/facebookincubator/velox/pull/9557/files#diff-436e44b7374032f8f5d7eb45869602add6f955162daa2798d01cc82f8725724dL812-L820,
     // We should pass bytes as parameter "reservationBytes" when calling ::grow.
-    auto freeByes = pool->freeBytes();
-    if (freeByes > bytes) {
+    auto freeBytes = pool->freeBytes();
+    if (freeBytes > bytes) {
       if (growPool(pool, 0, bytes)) {
         return;
       }
@@ -234,14 +234,14 @@ VeloxMemoryManager::VeloxMemoryManager(
   auto checkUsageLeak = backendConf.get<bool>(kCheckUsageLeak, kCheckUsageLeakDefault);
 
   ArbitratorFactoryRegister afr(listener_.get());
-  velox::memory::MemoryManagerOptions mmOptions{
-      .alignment = velox::memory::MemoryAllocator::kMaxAlignment,
-      .trackDefaultUsage = true, // memory usage tracking
-      .checkUsageLeak = checkUsageLeak, // leak check
-      .coreOnAllocationFailureEnabled = false,
-      .allocatorCapacity = velox::memory::kMaxMemory,
-      .arbitratorKind = afr.getKind(),
-      .extraArbitratorConfigs = getExtraArbitratorConfigs(backendConf)};
+  velox::memory::MemoryManager::Options mmOptions;
+  mmOptions.alignment = velox::memory::MemoryAllocator::kMaxAlignment;
+  mmOptions.trackDefaultUsage = true; // memory usage tracking
+  mmOptions.checkUsageLeak = checkUsageLeak; // leak check
+  mmOptions.coreOnAllocationFailureEnabled = false;
+  mmOptions.allocatorCapacity = velox::memory::kMaxMemory;
+  mmOptions.arbitratorKind = afr.getKind();
+  mmOptions.extraArbitratorConfigs = getExtraArbitratorConfigs(backendConf);
   veloxMemoryManager_ = std::make_unique<velox::memory::MemoryManager>(mmOptions);
 
   veloxAggregatePool_ = veloxMemoryManager_->addRootPool(
@@ -377,14 +377,14 @@ void VeloxMemoryManager::hold() {
 bool VeloxMemoryManager::tryDestructSafe() {
   // Velox memory pools considered safe to destruct when no alive allocations.
   for (const auto& pool : heldVeloxPools_) {
-    if (pool && pool->usedBytes() != 0) {
+    if (pool && pool->reservedBytes() != 0) {
       return false;
     }
   }
-  if (veloxLeafPool_ && veloxLeafPool_->usedBytes() != 0) {
+  if (veloxLeafPool_ && veloxLeafPool_->reservedBytes() != 0) {
     return false;
   }
-  if (veloxAggregatePool_ && veloxAggregatePool_->usedBytes() != 0) {
+  if (veloxAggregatePool_ && veloxAggregatePool_->reservedBytes() != 0) {
     return false;
   }
   heldVeloxPools_.clear();
@@ -467,7 +467,7 @@ VeloxMemoryManager::~VeloxMemoryManager() {
                << "ms as there are still outstanding memory resources. ";
   }
 #ifdef ENABLE_JEMALLOC_STATS
-  malloc_stats_print(NULL, NULL, NULL);
+  malloc_stats_print(nullptr, nullptr, nullptr);
 #endif
 }
 

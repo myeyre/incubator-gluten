@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.clickhouse.CHConfig
+import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.SparkConf
 import org.apache.spark.scheduler.{SparkListener, SparkListenerTaskEnd}
@@ -38,7 +39,7 @@ class GlutenClickHouseJoinSuite extends GlutenClickHouseWholeStageTransformerSui
       .set(ClickHouseConfig.CLICKHOUSE_WORKER_ID, "1")
       .set("spark.gluten.sql.columnar.iterator", "true")
       .set("spark.gluten.sql.columnar.hashagg.enablefinal", "true")
-      .set("spark.gluten.sql.enable.native.validation", "false")
+      .set(GlutenConfig.NATIVE_VALIDATION_ENABLED.key, "false")
       .set("spark.sql.warehouse.dir", warehouse)
       .set(
         "spark.sql.warehouse.dir",
@@ -94,7 +95,7 @@ class GlutenClickHouseJoinSuite extends GlutenClickHouseWholeStageTransformerSui
             |             d_qoy < 4)
             |LIMIT 100
             |""".stripMargin
-        runQueryAndCompare(q)(checkGlutenOperatorMatch[CHShuffledHashJoinExecTransformer])
+        runQueryAndCompare(q)(checkGlutenPlan[CHShuffledHashJoinExecTransformer])
       }
     }
   }
@@ -167,6 +168,78 @@ class GlutenClickHouseJoinSuite extends GlutenClickHouseWholeStageTransformerSui
         .collect()
       assert(taskCount.get() < 500)
     }
+  }
+
+  test("GLUTEN-10961 cross join with empty join clause") {
+    val crossSql1 =
+      """
+        |select a, b from (select id as a from range(1) )
+        |cross join (
+        | select id as b from range(2)
+        |);
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(crossSql1, true, { _ => })
+
+    val crossSql2 =
+      """
+        |select a, b from (select id as a from range(1) where id > 1 )
+        |cross join (
+        | select id as b from range(2)
+        |);
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(crossSql2, true, { _ => })
+
+    val fullSql1 =
+      """
+        |select a, b from (select id as a from range(1) where id > 1)
+        |full join (
+        | select id as b from range(2)
+        |)
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(fullSql1, true, { _ => })
+
+    val fullSql2 =
+      """
+        |select a, b from (select id as a from range(1) )
+        |full join (
+        | select id as b from range(2)
+        |)
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(fullSql2, true, { _ => })
+
+    val innerSql1 =
+      """
+        |select a, b from (select id as a from range(1) where id > 1)
+        |inner join (
+        | select id as b from range(2)
+        |)
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(innerSql1, true, { _ => })
+    val innerSql2 =
+      """
+        |select a, b from (select id as a from range(1) )
+        |inner join (
+        | select id as b from range(2)
+        |)
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(innerSql2, true, { _ => })
+
+    val leftSql1 =
+      """
+        |select a, b from (select id as a from range(1) where id > 1)
+        |left join (
+        | select id as b from range(2)
+        |)
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(leftSql1, true, { _ => })
+    val leftSql2 =
+      """
+        |select a, b from (select id as a from range(1) )
+        |left join (
+        | select id as b from range(2)
+        |)
+        |""".stripMargin
+    compareResultsAgainstVanillaSpark(leftSql2, true, { _ => })
   }
 
 }

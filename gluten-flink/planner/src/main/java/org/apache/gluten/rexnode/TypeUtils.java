@@ -20,10 +20,11 @@ import io.github.zhztheplayer.velox4j.expression.CastTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
 import io.github.zhztheplayer.velox4j.type.*;
 
-import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.util.FlinkRuntimeException;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class TypeUtils {
   private static final List<Class<?>> NUMERIC_TYPE_PRIORITY_LIST =
@@ -52,25 +53,56 @@ public class TypeUtils {
     return type instanceof VarCharType;
   }
 
-  public static List<TypedExpr> promoteTypeForArithmeticExpressions(List<TypedExpr> expressions) {
-    Type targetType =
-        expressions.stream()
-            .map(
-                expr -> {
-                  Type returnType = expr.getReturnType();
-                  int priority = getNumericTypePriority(returnType);
-                  return new Tuple2<>(priority, returnType);
-                })
-            .max((t1, t2) -> Integer.compare(t1.f0, t2.f0))
-            .orElseThrow(() -> new RuntimeException("No expressions found"))
-            .f1;
+  public static boolean isIntegerType(Type type) {
+    return type instanceof IntegerType;
+  }
 
-    return expressions.stream()
-        .map(
-            expr ->
-                expr.getReturnType().equals(targetType)
-                    ? expr
-                    : CastTypedExpr.create(targetType, expr, false))
-        .collect(Collectors.toList());
+  public static List<TypedExpr> promoteTypes(List<TypedExpr> exprs) {
+    Type targetType = null;
+    int targetPriority = -1, targetDecimalPrecision = -1, targetDecimalScale = -1;
+    boolean allDecimalType = true;
+    for (TypedExpr expr : exprs) {
+      Type returnType = expr.getReturnType();
+      if (returnType instanceof DecimalType) {
+        int precision = ((DecimalType) returnType).getPrecision();
+        int scale = ((DecimalType) returnType).getScale();
+        if (precision > targetDecimalPrecision) {
+          targetDecimalPrecision = precision;
+        }
+        if (scale > targetDecimalScale) {
+          targetDecimalScale = scale;
+        }
+      } else {
+        allDecimalType = false;
+        int priority = getNumericTypePriority(returnType);
+        if (priority > targetPriority) {
+          targetPriority = priority;
+          targetType = returnType;
+        }
+      }
+    }
+    if (targetType == null && allDecimalType) {
+      targetType = new DecimalType(targetDecimalPrecision, targetDecimalScale);
+    } else if (targetType == null) {
+      throw new FlinkRuntimeException("Logical error, target type can not be null.");
+    }
+    List<TypedExpr> res = new ArrayList<>();
+    for (TypedExpr expr : exprs) {
+      Type returnType = expr.getReturnType();
+      TypedExpr promotedExpr =
+          returnType.equals(targetType)
+              ? expr
+              : CastTypedExpr.create(
+                  targetType,
+                  expr instanceof CastTypedExpr ? ((CastTypedExpr) expr).getInputs().get(0) : expr,
+                  expr instanceof CastTypedExpr ? ((CastTypedExpr) expr).isNullOnFailure() : false);
+      res.add(promotedExpr);
+    }
+    return res;
+  }
+
+  public static List<TypedExpr> promoteTypeForArithmeticExpressions(
+      TypedExpr leftExpr, TypedExpr rightExpr) {
+    return promoteTypes(Arrays.asList(leftExpr, rightExpr));
   }
 }

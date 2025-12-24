@@ -24,6 +24,7 @@ import io.github.zhztheplayer.velox4j.expression.ConstantTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.FieldAccessTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
 import io.github.zhztheplayer.velox4j.type.Type;
+import io.github.zhztheplayer.velox4j.variant.ArrayValue;
 import io.github.zhztheplayer.velox4j.variant.BigIntValue;
 import io.github.zhztheplayer.velox4j.variant.BooleanValue;
 import io.github.zhztheplayer.velox4j.variant.DoubleValue;
@@ -35,7 +36,9 @@ import io.github.zhztheplayer.velox4j.variant.VarBinaryValue;
 import io.github.zhztheplayer.velox4j.variant.VarCharValue;
 import io.github.zhztheplayer.velox4j.variant.Variant;
 
+import org.apache.flink.calcite.shaded.com.google.common.collect.Range;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
+import org.apache.flink.util.Preconditions;
 
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexCall;
@@ -43,10 +46,14 @@ import org.apache.calcite.rex.RexFieldAccess;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.NlsString;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Convertor to convert RexNode to velox TypedExpr */
@@ -63,6 +70,9 @@ public class RexNodeConverter {
     } else if (rexNode instanceof RexInputRef) {
       RexInputRef inputRef = (RexInputRef) rexNode;
       List<String> inputAttributes = context.getInputAttributeNames();
+      Preconditions.checkArgument(
+          inputAttributes.size() > inputRef.getIndex(),
+          "InputRef index " + inputRef.getIndex() + " not in " + inputAttributes);
       return FieldAccessTypedExpr.create(
           toType(inputRef.getType()), inputAttributes.get(inputRef.getIndex()));
     } else if (rexNode instanceof RexFieldAccess) {
@@ -117,9 +127,48 @@ public class RexNodeConverter {
         } else {
           return new HugeIntValue(bigDecimal.unscaledValue());
         }
+      case SYMBOL:
+        return new VarCharValue(literal.getValue().toString());
       default:
         throw new RuntimeException(
             "Unsupported rex node type: " + literal.getType().getSqlTypeName());
+    }
+  }
+
+  public static TypedExpr toTypedExpr(Set<Range> ranges, RelDataType relDataType) {
+    List<Variant> values = new ArrayList<>(ranges.size());
+    for (Range range : ranges) {
+      if (range.lowerEndpoint() != range.upperEndpoint()) {
+        throw new RuntimeException("Not support multi ranges " + range);
+      }
+      values.add(toVariant(range.lowerEndpoint(), relDataType.getSqlTypeName()));
+    }
+    Variant arrayValue = new ArrayValue(values);
+    return ConstantTypedExpr.create(arrayValue);
+  }
+
+  public static List<TypedExpr> toTypedExpr(Range range, RelDataType relDataType) {
+    List<TypedExpr> results = new ArrayList<>(2);
+    Type resType = toType(relDataType);
+    results.add(
+        new ConstantTypedExpr(
+            resType, toVariant(range.lowerEndpoint(), relDataType.getSqlTypeName()), null));
+    results.add(
+        new ConstantTypedExpr(
+            resType, toVariant(range.upperEndpoint(), relDataType.getSqlTypeName()), null));
+    return results;
+  }
+
+  public static Variant toVariant(Comparable comparable, SqlTypeName typeName) {
+    switch (typeName) {
+      case INTEGER:
+        return new IntegerValue(((BigDecimal) comparable).intValue());
+      case VARCHAR:
+        return new VarCharValue(comparable.toString());
+      case CHAR:
+        return new VarCharValue(((NlsString) comparable).getValue());
+      default:
+        throw new RuntimeException("Unsupported range type: " + typeName);
     }
   }
 }

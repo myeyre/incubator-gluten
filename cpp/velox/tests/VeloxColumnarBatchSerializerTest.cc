@@ -17,11 +17,11 @@
 
 #include <gtest/gtest.h>
 
+#include "../utils/VeloxArrowUtils.h"
 #include "compute/VeloxBackend.h"
 #include "memory/ArrowMemoryPool.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "operators/serializer/VeloxColumnarBatchSerializer.h"
-#include "utils/VeloxArrowUtils.h"
 
 #include "velox/vector/arrow/Bridge.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
@@ -62,7 +62,10 @@ TEST_F(VeloxColumnarBatchSerializerTest, serialize) {
   auto vector = makeRowVector(children);
   auto batch = std::make_shared<VeloxColumnarBatch>(vector);
   auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
-  auto buffer = serializer->serializeColumnarBatches({batch});
+  serializer->append(batch);
+  std::shared_ptr<arrow::Buffer> buffer;
+  GLUTEN_ASSIGN_OR_THROW(buffer, arrow::AllocateResizableBuffer(serializer->maxSerializedSize(), arrowPool));
+  serializer->serializeTo(reinterpret_cast<uint8_t*>(buffer->mutable_address()), buffer->size());
 
   ArrowSchema cSchema;
   exportToArrow(vector, cSchema, ArrowUtils::getBridgeOptions());

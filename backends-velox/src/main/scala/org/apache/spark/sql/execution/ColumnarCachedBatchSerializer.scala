@@ -18,7 +18,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.execution.{RowToVeloxColumnarExec, VeloxColumnarToRowExec}
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
@@ -125,7 +125,12 @@ class ColumnarCachedBatchSerializer extends CachedBatchSerializer with Logging {
 
     val numRows = conf.columnBatchSize
     val rddColumnarBatch = input.mapPartitions {
-      it => RowToVeloxColumnarExec.toColumnarBatchIterator(it, localSchema, numRows)
+      it =>
+        RowToVeloxColumnarExec.toColumnarBatchIterator(
+          it,
+          localSchema,
+          numRows,
+          VeloxConfig.get.veloxPreferredBatchBytes)
     }
     convertColumnarBatchToCachedBatch(rddColumnarBatch, schema, storageLevel, conf)
   }
@@ -147,9 +152,7 @@ class ColumnarCachedBatchSerializer extends CachedBatchSerializer with Logging {
 
     val rddColumnarBatch =
       convertCachedBatchToColumnarBatch(input, cacheAttributes, selectedAttributes, conf)
-    rddColumnarBatch.mapPartitions {
-      it => VeloxColumnarToRowExec.toRowIterator(it, selectedAttributes)
-    }
+    rddColumnarBatch.mapPartitions(it => VeloxColumnarToRowExec.toRowIterator(it))
   }
 
   override def convertColumnarBatchToCachedBatch(
@@ -169,15 +172,14 @@ class ColumnarCachedBatchSerializer extends CachedBatchSerializer with Logging {
 
           override def next(): CachedBatch = {
             val batch = veloxBatches.next()
-            val results =
-              ColumnarBatchSerializerJniWrapper
-                .create(
-                  Runtimes.contextInstance(
-                    BackendsApiManager.getBackendName,
-                    "ColumnarCachedBatchSerializer#serialize"))
-                .serialize(
-                  ColumnarBatches.getNativeHandle(BackendsApiManager.getBackendName, batch))
-            CachedColumnarBatch(batch.numRows(), results.length, results)
+            val unsafeBuffer = ColumnarBatchSerializerJniWrapper
+              .create(
+                Runtimes.contextInstance(
+                  BackendsApiManager.getBackendName,
+                  "ColumnarCachedBatchSerializer#serialize"))
+              .serialize(ColumnarBatches.getNativeHandle(BackendsApiManager.getBackendName, batch))
+            val bytes = unsafeBuffer.toByteArray
+            CachedColumnarBatch(batch.numRows(), bytes.length, bytes)
           }
         }
     }

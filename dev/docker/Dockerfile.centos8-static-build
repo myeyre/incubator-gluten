@@ -32,7 +32,6 @@ RUN set -ex; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-11; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-1.8.0-openjdk-devel patch wget git perl; \
-    yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2025a-1.el9.noarch.rpm -y; \
     rpm -qa | grep tzdata; \
     dnf clean all; \
     git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten; \
@@ -45,6 +44,7 @@ RUN set -ex; \
     fi; \
     source /opt/rh/gcc-toolset-11/enable; \
     cd /opt/gluten; \
+    export SSL_VERIFY=false; \
     bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
                                     --enable_hdfs=ON --enable_abfs=ON  build_arrow; \
     mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \

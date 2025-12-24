@@ -35,8 +35,6 @@ import org.apache.spark.util.SparkResourceUtil
 import java.util
 import java.util.Collections
 
-import scala.collection.mutable
-
 class GlutenPlugin extends SparkPlugin {
   override def driverPlugin(): DriverPlugin = {
     new GlutenDriverPlugin()
@@ -109,7 +107,34 @@ private object GlutenDriverPlugin extends Logging {
     checkOffHeapSettings(conf)
 
     // Get the off-heap size set by user.
-    val offHeapSize = conf.getSizeAsBytes(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY)
+    val offHeapSize =
+      if (conf.getBoolean(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key, false)) {
+        val onHeapSize: Long =
+          if (conf.contains(GlutenCoreConfig.SPARK_ONHEAP_SIZE_KEY)) {
+            conf.getSizeAsBytes(GlutenCoreConfig.SPARK_ONHEAP_SIZE_KEY)
+          } else {
+            // 1GB default
+            1024 * 1024 * 1024
+          }
+
+        if (conf.contains(GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY)) {
+          logWarning(
+            s"Dynamic off-heap sizing is enabled. Ignoring user-defined " +
+              s"'${GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY}' setting.")
+        }
+        if (conf.contains(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY)) {
+          logWarning(
+            s"Dynamic off-heap sizing is enabled. Ignoring user-defined " +
+              s"'${GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY}' setting.")
+        }
+        conf.set(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY, "0")
+        conf.set(GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY, "false")
+
+        ((onHeapSize - (300 * 1024 * 1024)) *
+          conf.getDouble(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION.key, 0.6d)).toLong
+      } else {
+        conf.getSizeAsBytes(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY)
+      }
 
     // Set off-heap size in bytes.
     conf.set(GlutenCoreConfig.COLUMNAR_OFFHEAP_SIZE_IN_BYTES, offHeapSize)
@@ -130,17 +155,14 @@ private object GlutenDriverPlugin extends Logging {
   }
 
   private def printComponentInfo(components: Seq[Component]): Unit = {
-    val componentInfo = mutable.LinkedHashMap[String, String]()
-    componentInfo.put("Components", components.map(_.buildInfo().name).mkString(", "))
-    components.foreach {
-      comp =>
-        val buildInfo = comp.buildInfo()
-        componentInfo.put(s"Component ${buildInfo.name} Branch", buildInfo.branch)
-        componentInfo.put(s"Component ${buildInfo.name} Revision", buildInfo.revision)
-        componentInfo.put(s"Component ${buildInfo.name} Revision Time", buildInfo.revisionTime)
-    }
-    val loggingInfo = componentInfo
-      .map { case (name, value) => s"$name: $value" }
+    val loggingInfo = components
+      .map {
+        c =>
+          val infoStr =
+            if (c.info().isEmpty) ""
+            else "\n" + c.info().map { case (k, v) => s"  $k = $v" }.mkString("\n")
+          s"Component ${c.name()}$infoStr"
+      }
       .mkString(
         "Gluten components:\n==============================================================\n",
         "\n",

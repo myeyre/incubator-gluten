@@ -29,6 +29,7 @@ import org.apache.spark.scheduler.TaskInfo
 import org.apache.spark.shuffle.ShuffleHandle
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.DecimalPrecision
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.csv.CSVOptions
 import org.apache.spark.sql.catalyst.expressions._
@@ -49,21 +50,21 @@ import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV
 import org.apache.spark.sql.execution.datasources.v2.text.TextScan
 import org.apache.spark.sql.execution.datasources.v2.utils.CatalogUtil
 import org.apache.spark.sql.execution.exchange.BroadcastExchangeLike
+import org.apache.spark.sql.extension.RewriteCreateTableAsSelect
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.LegacyBehaviorPolicy
-import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
+import org.apache.spark.sql.types.{DecimalType, IntegerType, LongType, StructField, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.storage.{BlockId, BlockManagerId}
 
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileStatus, LocatedFileStatus, Path}
+import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.crypto.ParquetCryptoRuntimeException
-import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.metadata.ParquetMetadata
 import org.apache.parquet.schema.MessageType
 
 import java.time.ZoneOffset
-import java.util.{HashMap => JHashMap, Map => JMap}
 
+import scala.collection.mutable
 import scala.reflect.ClassTag
 
 class Spark34Shims extends SparkShims {
@@ -81,6 +82,7 @@ class Spark34Shims extends SparkShims {
       Sig[KnownNullable](KNOWN_NULLABLE),
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
       Sig[TimestampAdd](ExpressionNames.TIMESTAMP_ADD),
+      Sig[TimestampDiff](ExpressionNames.TIMESTAMP_DIFF),
       Sig[RoundFloor](ExpressionNames.FLOOR),
       Sig[RoundCeil](ExpressionNames.CEIL),
       Sig[Mask](ExpressionNames.MASK),
@@ -241,31 +243,29 @@ class Spark34Shims extends SparkShims {
 
   override def generateMetadataColumns(
       file: PartitionedFile,
-      metadataColumnNames: Seq[String]): JMap[String, String] = {
-    val metadataColumn = new JHashMap[String, String]()
+      metadataColumnNames: Seq[String]): Map[String, String] = {
+    val originMetadataColumn = super.generateMetadataColumns(file, metadataColumnNames)
+    val metadataColumn: mutable.Map[String, String] = mutable.Map(originMetadataColumn.toSeq: _*)
     val path = new Path(file.filePath.toString)
     for (columnName <- metadataColumnNames) {
       columnName match {
-        case FileFormat.FILE_PATH => metadataColumn.put(FileFormat.FILE_PATH, path.toString)
-        case FileFormat.FILE_NAME => metadataColumn.put(FileFormat.FILE_NAME, path.getName)
+        case FileFormat.FILE_PATH => metadataColumn += (FileFormat.FILE_PATH -> path.toString)
+        case FileFormat.FILE_NAME => metadataColumn += (FileFormat.FILE_NAME -> path.getName)
         case FileFormat.FILE_SIZE =>
-          metadataColumn.put(FileFormat.FILE_SIZE, file.fileSize.toString)
+          metadataColumn += (FileFormat.FILE_SIZE -> file.fileSize.toString)
         case FileFormat.FILE_MODIFICATION_TIME =>
           val fileModifyTime = TimestampFormatter
             .getFractionFormatter(ZoneOffset.UTC)
             .format(file.modificationTime * 1000L)
-          metadataColumn.put(FileFormat.FILE_MODIFICATION_TIME, fileModifyTime)
+          metadataColumn += (FileFormat.FILE_MODIFICATION_TIME -> fileModifyTime)
         case FileFormat.FILE_BLOCK_START =>
-          metadataColumn.put(FileFormat.FILE_BLOCK_START, file.start.toString)
+          metadataColumn += (FileFormat.FILE_BLOCK_START -> file.start.toString)
         case FileFormat.FILE_BLOCK_LENGTH =>
-          metadataColumn.put(FileFormat.FILE_BLOCK_LENGTH, file.length.toString)
+          metadataColumn += (FileFormat.FILE_BLOCK_LENGTH -> file.length.toString)
         case _ =>
       }
     }
-    metadataColumn.put(InputFileName().prettyName, file.filePath.toString)
-    metadataColumn.put(InputFileBlockStart().prettyName, file.start.toString)
-    metadataColumn.put(InputFileBlockLength().prettyName, file.length.toString)
-    metadataColumn
+    metadataColumn.toMap
   }
 
   // https://issues.apache.org/jira/browse/SPARK-40400
@@ -434,7 +434,8 @@ class Spark34Shims extends SparkShims {
       outputPartitioning: Partitioning,
       commonPartitionValues: Option[Seq[(InternalRow, Int)]],
       applyPartialClustering: Boolean,
-      replicatePartitions: Boolean): Seq[Seq[InputPartition]] = {
+      replicatePartitions: Boolean,
+      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]] = {
     scan match {
       case _ if keyGroupedPartitioning.isDefined =>
         var finalPartitions = filteredPartitions
@@ -558,6 +559,7 @@ class Spark34Shims extends SparkShims {
       case s: Subtract => s.evalMode == EvalMode.ANSI
       case d: Divide => d.evalMode == EvalMode.ANSI
       case m: Multiply => m.evalMode == EvalMode.ANSI
+      case i: IntegralDivide => i.evalMode == EvalMode.ANSI
       case _ => false
     }
   }
@@ -603,11 +605,9 @@ class Spark34Shims extends SparkShims {
   override def unsetOperatorId(plan: QueryPlan[_]): Unit = {
     plan.unsetTagValue(QueryPlan.OP_ID_TAG)
   }
-  override def isParquetFileEncrypted(
-      fileStatus: LocatedFileStatus,
-      conf: Configuration): Boolean = {
+  override def isParquetFileEncrypted(footer: ParquetMetadata): Boolean = {
     try {
-      ParquetFileReader.readFooter(new Configuration(), fileStatus.getPath).toString
+      footer.toString
       false
     } catch {
       case e: Exception if ExceptionUtils.hasCause(e, classOf[ParquetCryptoRuntimeException]) =>
@@ -622,4 +622,33 @@ class Spark34Shims extends SparkShims {
     plan.offset
   }
 
+  override def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean = unBase64.failOnError
+
+  override def extractExpressionTimestampAddUnit(exp: Expression): Option[Seq[String]] = {
+    exp match {
+      case timestampAdd: TimestampAdd =>
+        Option.apply(Seq(timestampAdd.unit, timestampAdd.timeZoneId.getOrElse("")))
+      case _ => Option.empty
+    }
+  }
+
+  override def extractExpressionTimestampDiffUnit(exp: Expression): Option[String] = {
+    exp match {
+      case timestampDiff: TimestampDiff =>
+        Some(timestampDiff.unit)
+      case _ => Option.empty
+    }
+  }
+
+  override def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType = {
+    DecimalPrecision.widerDecimalType(d1, d2)
+  }
+
+  override def getRewriteCreateTableAsSelect(session: SparkSession): SparkStrategy = {
+    RewriteCreateTableAsSelect(session)
+  }
+
+  override def getErrorMessage(raiseError: RaiseError): Option[Expression] = {
+    Some(raiseError.child)
+  }
 }

@@ -55,11 +55,6 @@ abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkP
   protected val notNullAttributes: Seq[ExprId] =
     notNullPreds.flatMap(_.references).distinct.map(_.exprId)
 
-  override def isNullIntolerant(expr: Expression): Boolean = expr match {
-    case e: NullIntolerant => e.children.forall(isNullIntolerant)
-    case _ => false
-  }
-
   override def isNoop: Boolean = getRemainingCondition == null
 
   override def metricsUpdater(): MetricsUpdater = if (isNoop) {
@@ -119,7 +114,7 @@ abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkP
       cond
     } else {
       val remainingFilters =
-        FilterHandler.getRemainingFilters(scanFilters, splitConjunctivePredicates(cond))
+        FilterHandler.subtractFilters(splitConjunctivePredicates(cond), scanFilters)
       remainingFilters.reduceLeftOption(And).orNull
     }
   }
@@ -189,11 +184,6 @@ abstract class ProjectExecTransformerBase(val list: Seq[NamedExpression], val in
       // Then, validate the generated plan in native engine.
       doNativeValidation(substraitContext, relNode)
     }()
-  }
-
-  override def isNullIntolerant(expr: Expression): Boolean = expr match {
-    case e: NullIntolerant => e.children.forall(isNullIntolerant)
-    case _ => false
   }
 
   override def metricsUpdater(): MetricsUpdater =
@@ -322,16 +312,12 @@ object FilterHandler extends PredicateHelper {
     }
   }
 
-  /**
-   * Compare the semantics of the filter conditions pushed down to Scan and in the Filter.
-   *
-   * @param scanFilters
-   *   : the conditions pushed down into Scan
-   * @param filters
-   *   : the conditions in the Filter after the Scan
-   * @return
-   *   the filter conditions not pushed down into Scan.
-   */
-  def getRemainingFilters(scanFilters: Seq[Expression], filters: Seq[Expression]): Seq[Expression] =
-    (filters.toSet -- scanFilters.toSet).toSeq
+  def subtractFilters(left: Seq[Expression], right: Seq[Expression]): Seq[Expression] = {
+    val scanSet = right.map(_.canonicalized).toSet
+    left.filter(f => !scanSet.contains(f.canonicalized))
+  }
+
+  def combineFilters(left: Seq[Expression], right: Seq[Expression]): Seq[Expression] = {
+    (left.toSet ++ right.toSet).toSeq
+  }
 }

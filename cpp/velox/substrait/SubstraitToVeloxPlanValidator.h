@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <unordered_map>
 #include "SubstraitToVeloxPlan.h"
 #include "velox/core/QueryCtx.h"
 
@@ -32,7 +33,8 @@ class SubstraitToVeloxPlanValidator {
     std::unordered_map<std::string, std::string> configs{
         {velox::core::QueryConfig::kSparkPartitionId, "0"}, {velox::core::QueryConfig::kSessionTimezone, "GMT"}};
     veloxCfg_ = std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
-    planConverter_ = std::make_unique<SubstraitToVeloxPlanConverter>(pool, veloxCfg_.get(), std::nullopt, true);
+    planConverter_ =
+        std::make_unique<SubstraitToVeloxPlanConverter>(pool, veloxCfg_.get(), std::nullopt, std::nullopt, true);
     queryCtx_ = velox::core::QueryCtx::create(nullptr, velox::core::QueryConfig(veloxCfg_->rawConfigs()));
     // An execution context used for function validation.
     execCtx_ = std::make_unique<velox::core::ExecCtx>(pool, queryCtx_.get());
@@ -40,6 +42,12 @@ class SubstraitToVeloxPlanValidator {
 
   /// Used to validate whether the computing of this Plan is supported.
   bool validate(const ::substrait::Plan& plan);
+
+  /// Used to validate whether the computing of this Expression is supported.
+  bool validate(
+      const ::substrait::Expression& expression,
+      const RowTypePtr& inputType,
+      std::unordered_map<uint64_t, std::string> functionMappings);
 
   const std::vector<std::string>& getValidateLog() const {
     return validateLog_;

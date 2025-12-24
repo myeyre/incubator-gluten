@@ -19,12 +19,19 @@
 
 #include "WholeStageResultIterator.h"
 #include "compute/Runtime.h"
+#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
+#include "iceberg/IcebergWriter.h"
+#endif
 #include "memory/VeloxMemoryManager.h"
 #include "operators/serializer/VeloxColumnarBatchSerializer.h"
 #include "operators/serializer/VeloxColumnarToRowConverter.h"
 #include "operators/writer/VeloxParquetDataSource.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/ShuffleWriter.h"
+
+#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
+#include "IcebergNestedField.pb.h"
+#endif
 
 namespace gluten {
 
@@ -50,8 +57,7 @@ class VeloxRuntime final : public Runtime {
   // FIXME This is not thread-safe?
   std::shared_ptr<ResultIterator> createResultIterator(
       const std::string& spillDir,
-      const std::vector<std::shared_ptr<ResultIterator>>& inputs = {},
-      const std::unordered_map<std::string, std::string>& sessionConf = {}) override;
+      const std::vector<std::shared_ptr<ResultIterator>>& inputs = {}) override;
 
   std::shared_ptr<ColumnarToRowConverter> createColumnar2RowConverter(int64_t column2RowMemThreshold) override;
 
@@ -61,6 +67,17 @@ class VeloxRuntime final : public Runtime {
       override;
 
   std::shared_ptr<RowToColumnarConverter> createRow2ColumnarConverter(struct ArrowSchema* cSchema) override;
+
+#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
+  std::shared_ptr<IcebergWriter> createIcebergWriter(
+      RowTypePtr rowType,
+      int32_t format,
+      const std::string& outputDirectory,
+      facebook::velox::common::CompressionKind compressionKind,
+      std::shared_ptr<const facebook::velox::connector::hive::iceberg::IcebergPartitionSpec> spec,
+      const gluten::IcebergNestedField& protoField,
+      const std::unordered_map<std::string, std::string>& sparkConfs);
+#endif
 
   std::shared_ptr<ShuffleWriter> createShuffleWriter(
       int numPartitions,

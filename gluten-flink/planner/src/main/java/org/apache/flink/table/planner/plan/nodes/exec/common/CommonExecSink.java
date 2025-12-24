@@ -16,12 +16,15 @@
  */
 package org.apache.flink.table.planner.plan.nodes.exec.common;
 
-import org.apache.gluten.table.runtime.operators.GlutenSingleInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
+import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
+import org.apache.gluten.velox.VeloxSourceSinkFactory;
 
 import org.apache.flink.api.common.io.OutputFormat;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.typeutils.InputTypeConfigurable;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.streaming.api.datastream.CustomSinkOperatorUidHashes;
@@ -85,6 +88,7 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonPro
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -94,7 +98,6 @@ import java.util.stream.IntStream;
  */
 public abstract class CommonExecSink extends ExecNodeBase<Object>
     implements MultipleTransformationTranslator<Object> {
-
   public static final String CONSTRAINT_VALIDATOR_TRANSFORMATION = "constraint-validator";
   public static final String PARTITIONER_TRANSFORMATION = "partitioner";
   public static final String UPSERT_MATERIALIZE_TRANSFORMATION = "upsert-materialize";
@@ -464,8 +467,13 @@ public abstract class CommonExecSink extends ExecNodeBase<Object>
       } else if (runtimeProvider instanceof SinkFunctionProvider) {
         final SinkFunction<RowData> sinkFunction =
             ((SinkFunctionProvider) runtimeProvider).createSinkFunction();
-        return createSinkFunctionTransformation(
-            sinkFunction, env, inputTransform, rowtimeFieldIndex, sinkMeta, sinkParallelism);
+        // --- Begin Gluten-specific code changes ---
+        Transformation sinkTransformation =
+            createSinkFunctionTransformation(
+                sinkFunction, env, inputTransform, rowtimeFieldIndex, sinkMeta, sinkParallelism);
+        return VeloxSourceSinkFactory.buildSink(
+            sinkTransformation, Map.of(Configuration.class.getName(), env.getConfiguration()));
+        // --- End Gluten-specific code changes ---
       } else if (runtimeProvider instanceof OutputFormatProvider) {
         OutputFormat<RowData> outputFormat =
             ((OutputFormatProvider) runtimeProvider).createOutputFormat();
@@ -547,6 +555,10 @@ public abstract class CommonExecSink extends ExecNodeBase<Object>
       return inputTransform;
     }
     // --- Begin Gluten-specific code changes ---
+    io.github.zhztheplayer.velox4j.type.RowType outputType =
+        (io.github.zhztheplayer.velox4j.type.RowType)
+            LogicalTypeConverter.toVLType(
+                ((InternalTypeInfo) inputTransform.getOutputType()).toLogicalType());
     return ExecNodeUtil.createOneInputTransformation(
         inputTransform,
         createTransformationMeta(
@@ -554,8 +566,9 @@ public abstract class CommonExecSink extends ExecNodeBase<Object>
             String.format("StreamRecordTimestampInserter(rowtime field: %s)", rowtimeFieldIndex),
             "StreamRecordTimestampInserter",
             config),
-        // TODO: support it
-        new GlutenSingleInputOperator(null, PlanNodeIdGenerator.newId(), null, null),
+        // TODO: support it, Map.of() will not be used, hardcode it here.
+        new GlutenOneInputOperator(
+            null, PlanNodeIdGenerator.newId(), null, Map.of("1", outputType)),
         inputTransform.getOutputType(),
         sinkParallelism,
         sinkParallelismConfigured);

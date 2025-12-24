@@ -26,9 +26,10 @@ import org.apache.spark.scheduler.TaskInfo
 import org.apache.spark.shuffle.ShuffleHandle
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.DecimalPrecision
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.csv.CSVOptions
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, BinaryExpression, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName}
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.TypedImperativeAggregate
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -52,13 +53,10 @@ import org.apache.spark.sql.types.{DecimalType, StructField, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.storage.{BlockId, BlockManagerId}
 
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileStatus, LocatedFileStatus, Path}
+import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.crypto.ParquetCryptoRuntimeException
-import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.metadata.ParquetMetadata
 import org.apache.parquet.schema.MessageType
-
-import java.util.{HashMap => JHashMap, Map => JMap}
 
 class Spark32Shims extends SparkShims {
 
@@ -237,16 +235,6 @@ class Spark32Shims extends SparkShims {
     (None, None)
   }
 
-  override def generateMetadataColumns(
-      file: PartitionedFile,
-      metadataColumnNames: Seq[String]): JMap[String, String] = {
-    val metadataColumn = new JHashMap[String, String]()
-    metadataColumn.put(InputFileName().prettyName, file.filePath)
-    metadataColumn.put(InputFileBlockStart().prettyName, file.start.toString)
-    metadataColumn.put(InputFileBlockLength().prettyName, file.length.toString)
-    metadataColumn
-  }
-
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan] = {
     ae.plan
   }
@@ -295,11 +283,9 @@ class Spark32Shims extends SparkShims {
     plan.unsetTagValue(QueryPlan.OP_ID_TAG)
   }
 
-  override def isParquetFileEncrypted(
-      fileStatus: LocatedFileStatus,
-      conf: Configuration): Boolean = {
+  override def isParquetFileEncrypted(footer: ParquetMetadata): Boolean = {
     try {
-      ParquetFileReader.readFooter(new Configuration(), fileStatus.getPath).toString
+      footer.toString
       false
     } catch {
       case e: Exception if ExceptionUtils.hasCause(e, classOf[ParquetCryptoRuntimeException]) =>
@@ -310,4 +296,11 @@ class Spark32Shims extends SparkShims {
     }
   }
 
+  override def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType = {
+    DecimalPrecision.widerDecimalType(d1, d2)
+  }
+
+  override def getErrorMessage(raiseError: RaiseError): Option[Expression] = {
+    Some(raiseError.child)
+  }
 }

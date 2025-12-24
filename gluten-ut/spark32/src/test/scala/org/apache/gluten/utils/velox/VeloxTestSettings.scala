@@ -107,13 +107,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35719: cast timestamp with local time zone to timestamp without timezone")
 
   enableSuite[GlutenTryCastSuite]
-    .exclude(
-      // array/map/struct not supported yet.
-      "cast from invalid string array to numeric array should throw NumberFormatException",
-      "cast from array II",
-      "cast from map II",
-      "cast from struct II"
-    )
     // Timezone.
     .exclude("SPARK-35711: cast timestamp without time zone to timestamp with local time zone")
     // Timezone.
@@ -226,10 +219,13 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("to_timestamp exception mode")
     // Replaced by a gluten test to pass timezone through config.
     .exclude("from_unixtime")
+    // Replaced by a gluten test to pass timezone through config.
+    .exclude("months_between")
     // https://github.com/facebookincubator/velox/pull/10563/files#diff-140dc50e6dac735f72d29014da44b045509df0dd1737f458de1fe8cfd33d8145
     .excludeGlutenTest("from_unixtime")
   enableSuite[GlutenDecimalExpressionSuite]
   enableSuite[GlutenDecimalPrecisionSuite]
+  enableSuite[GlutenGeneratorExpressionSuite]
   enableSuite[GlutenStringFunctionsSuite]
   enableSuite[GlutenRegexpExpressionsSuite]
   enableSuite[GlutenNullExpressionsSuite]
@@ -375,6 +371,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenJsonExpressionsSuite]
     // https://github.com/apache/incubator-gluten/issues/8102
     .exclude("$.store.book")
+    // https://github.com/apache/incubator-gluten/issues/10948
+    .exclude("$['key with spaces']")
     .exclude("$")
     .exclude("$.store.book[0]")
     .exclude("$.store.book[*]")
@@ -424,9 +422,20 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("SPARK-35675")
   enableSuite[GlutenCoalesceShufflePartitionsSuite]
     .excludeByPrefix("SPARK-24705")
+    // Rewrite for Gluten. Change details are in the inline comments in individual tests.
     .excludeByPrefix("determining the number of reducers")
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
+    // Following tests are excluded as these are overridden in Gluten test suite..
+    // The overridden tests assert against Velox-specific error messages for char/varchar
+    // length validation, which differ from the original vanilla Spark tests.
+    .exclude("length check for input string values: nested in struct")
+    .exclude("length check for input string values: nested in struct of array")
   enableSuite[GlutenDSV2CharVarcharTestSuite]
+    // Following tests are excluded as these are overridden in Gluten test suite..
+    // The overridden tests assert against Velox-specific error messages for char/varchar
+    // length validation, which differ from the original vanilla Spark tests.
+    .exclude("length check for input string values: nested in struct")
+    .exclude("length check for input string values: nested in struct of array")
   enableSuite[GlutenFileScanSuite]
   enableSuite[GlutenNestedDataSourceV1Suite]
   enableSuite[GlutenNestedDataSourceV2Suite]
@@ -439,7 +448,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("DDL test with schema")
     .exclude("save csv")
     .exclude("save csv with compression codec option")
-    .exclude("save csv with empty fields with user defined empty values")
     .exclude("save csv with quote")
     .exclude("SPARK-13543 Write the output as uncompressed via option()")
     .exclude("DDL test with tab separated file")
@@ -451,10 +459,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-23786: warning should be printed if CSV header doesn't conform to schema")
     // file cars.csv include null string, Arrow not support to read
     .exclude("DDL test with schema")
-    .exclude("old csv data source name works")
     .exclude("save csv")
     .exclude("save csv with compression codec option")
-    .exclude("save csv with empty fields with user defined empty values")
     .exclude("save csv with quote")
     .exclude("SPARK-13543 Write the output as uncompressed via option()")
     .exclude("DDL test with tab separated file")
@@ -469,22 +475,14 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("DDL test with schema")
     .exclude("save csv")
     .exclude("save csv with compression codec option")
-    .exclude("save csv with empty fields with user defined empty values")
     .exclude("save csv with quote")
     .exclude("SPARK-13543 Write the output as uncompressed via option()")
     .exclude("DDL test with tab separated file")
     .exclude("DDL test parsing decimal type")
     .exclude("test with tab delimiter and double quote")
   enableSuite[GlutenJsonV1Suite]
-    // FIXME: Array direct selection fails
-    .exclude("Complex field and type inferring")
-    .exclude("SPARK-4228 DataFrame to JSON")
   enableSuite[GlutenJsonV2Suite]
-    .exclude("Complex field and type inferring")
-    .exclude("SPARK-4228 DataFrame to JSON")
   enableSuite[GlutenJsonLegacyTimeParserSuite]
-    .exclude("Complex field and type inferring")
-    .exclude("SPARK-4228 DataFrame to JSON")
   enableSuite[GlutenTextV1Suite]
   enableSuite[GlutenTextV2Suite]
   enableSuite[GlutenOrcColumnarBatchReaderSuite]
@@ -723,7 +721,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataSourceV2SQLSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2SQLSuite]
   enableSuite[GlutenFileDataSourceV2FallBackSuite]
-    // DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type
+    // Rewritten
     .exclude("Fallback Parquet V2 to V1")
   enableSuite[GlutenLocalScanSuite]
   enableSuite[GlutenSupportsCatalogOptionsSuite]
@@ -831,6 +829,11 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Independent Batched Python UDFs and Scalar Pandas UDFs should be combined separately")
     .exclude("Dependent Batched Python UDFs and Scalar Pandas UDFs should not be combined")
     .exclude("Python UDF should not break column pruning/filter pushdown -- Parquet V2")
+  enableSuite[GlutenQueryExecutionSuite]
+    // Rewritten to set root logger level to INFO so that logs can be parsed
+    .exclude("Logging plan changes for execution")
+    // Rewrite for transformed plan
+    .exclude("dumping query execution info to a file - explainMode=formatted")
 
   override def getSQLQueryTestSettings: SQLQueryTestSettings = VeloxSQLQueryTestSettings
 }
